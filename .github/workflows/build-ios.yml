@@ -1,7 +1,7 @@
 name: Build Chinese iOS IPA
 
 on:
-  workflow_dispatch: # 支持在 Actions 页面手动点击按钮运行
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -9,28 +9,22 @@ on:
 jobs:
   build-ios:
     name: Translate Settings & Build IPA
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
       - name: 1. Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: 2. Translate Settings Screen (No API Key Needed)
+      - name: 2. Translate Settings Screen
+        shell: python3 {0}
         run: |
-          cat << 'EOF' > translate_settings.py
           import glob
           import re
 
-          # Debrify 设置页面全量精准汉化词典（按长短排序防止部分覆盖）
           translations = {
-              # 页面主标题与分类
               "Settings": "设置",
               "Account & Debrid": "账号与 Debrid 服务",
-              "Real-Debrid": "Real-Debrid",
-              "TorBox": "TorBox",
-              "AllDebrid": "AllDebrid",
-              "Premiumize": "Premiumize",
               "Debrid Service": "Debrid 服务商",
               "API Key": "API 密钥",
               "Enter your API Key": "输入你的 API 密钥",
@@ -43,8 +37,6 @@ jobs:
               "Reset": "重置",
               "Saved successfully": "保存成功",
               "API Key saved": "API 密钥已保存",
-
-              # 播放与视频设置
               "Playback": "播放设置",
               "Player": "播放器",
               "Player Settings": "播放器设置",
@@ -68,8 +60,6 @@ jobs:
               "Seek Duration": "快进/快退时长",
               "Resume Playback": "恢复播放进度",
               "Continue Watching": "继续观看",
-
-              # 搜索与源设置 (Torrents / Indexers / Stremio)
               "Sources": "资源与插件源",
               "Indexers": "索引器 (Indexers)",
               "Addons": "扩展插件 (Addons)",
@@ -87,15 +77,11 @@ jobs:
               "Filter out cams": "过滤枪版 (CAM) 资源",
               "Exclude 3D": "排除 3D 资源",
               "HDR / Dolby Vision": "HDR / 杜比视界",
-
-              # 直播与播放列表 (IPTV / Playlists)
               "Playlists": "播放列表",
               "Channels": "电视直播频道",
               "EPG": "电子节目单 (EPG)",
               "Refresh Playlist": "刷新播放列表",
               "Auto Refresh": "自动刷新",
-
-              # 外观与常规设置
               "General": "常规设置",
               "Appearance": "外观与主题",
               "Theme": "主题模式",
@@ -107,8 +93,6 @@ jobs:
               "Layout": "界面布局",
               "Grid Size": "海报网格大小",
               "Show Posters": "显示海报",
-
-              # 同步、备份与缓存
               "Sync": "同步",
               "Sync & Backup": "同步与备份",
               "Backup & Restore": "备份与恢复",
@@ -124,8 +108,6 @@ jobs:
               "Clear Watch History": "清除观看历史",
               "Downloads": "下载管理",
               "Download Location": "下载保存位置",
-
-              # 关于与更新
               "About": "关于",
               "Version": "当前版本",
               "Check for Updates": "检查更新",
@@ -136,11 +118,9 @@ jobs:
               "License": "开源许可"
           }
 
-          # 扫描设置相关的所有源码文件
-          files = set(glob.glob("lib/**/*setting*.dart", recursive=True) + glob.glob("lib/screens/*.dart"))
-          print(f"扫描到目标文件: {files}")
+          files = set(glob.glob("lib/**/*setting*.dart", recursive=True) + glob.glob("lib/screens/**/*.dart", recursive=True))
+          print(f"Found {len(files)} target files.")
 
-          # 按英文长度降序排列，优先替换长句子，避免短词破坏长句
           sorted_keys = sorted(translations.keys(), key=len, reverse=True)
 
           for filepath in files:
@@ -150,45 +130,37 @@ jobs:
               original = content
               for en in sorted_keys:
                   zh = translations[en]
-                  # 仅替换被单引号或双引号完整包裹的 UI 字符串，或者 Text('...') 内部文本，绝不破坏变量名
-                  content = re.sub(rf"'(?i:{re.escape(en)})'", f"'{zh}'", content)
-                  content = re.sub(rf'"(?i:{re.escape(en)})"', f'"{zh}"', content)
+                  ui_pattern_single = rf"(Text\(\s*|title:\s*|subtitle:\s*|label:\s*|labelText:\s*|hintText:\s*|tooltip:\s*|text:\s*)'{re.escape(en)}'"
+                  ui_pattern_double = rf'(Text\(\s*|title:\s*|subtitle:\s*|label:\s*|labelText:\s*|hintText:\s*|tooltip:\s*|text:\s*)"{re.escape(en)}"'
+                  content = re.sub(ui_pattern_single, rf"\1'{zh}'", content)
+                  content = re.sub(ui_pattern_double, rf'\1"{zh}"', content)
 
               if content != original:
                   with open(filepath, "w", encoding="utf-8") as f:
                       f.write(content)
-                  print(f"✅ 已汉化文件: {filepath}")
-          EOF
-          python3 translate_settings.py
-          rm -f translate_settings.py
+                  print(f"Translated: {filepath}")
 
-      - name: 3. Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: 4. Set up Flutter
+      - name: 3. Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
-      - name: 5. Install Flutter Dependencies
+      - name: 4. Install Flutter Dependencies
         run: flutter pub get
 
-      - name: 6. Build iOS Application (Unsigned)
+      - name: 5. Build iOS Application (Unsigned)
         run: |
           flutter build ios --release --no-codesign
 
-      - name: 7. Package into IPA
+      - name: 6. Package into IPA
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
           zip -r -9 debrify-ios-zh-unsigned.ipa Payload
           ls -lh debrify-ios-zh-unsigned.ipa
 
-      - name: 8. Upload IPA Artifact
+      - name: 7. Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: debrify-ios-zh-unsigned
