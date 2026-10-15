@@ -1,4 +1,4 @@
-name: Build Chinese iOS IPA
+name: Build Chinese iOS IPA (Final Ultimate Edition)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   ios:
-    name: Translate Settings & Build IPA
+    name: Translate & Build Final IPA
     runs-on: macos-latest
     timeout-minutes: 60
 
@@ -27,75 +27,116 @@ jobs:
         config = Path(os.environ["RUNNER_TEMP"]) / "debrify-build-config.json"
         config.write_text(json.dumps({"TMDB_READ_ACCESS_TOKEN": token}), encoding="utf-8")
 
-    - name: 3. Safe Bulk Translate Settings
+    - name: 3. Safe & Comprehensive UI Translation
       shell: python
       run: |
         import glob
         import re
 
-        # 高覆盖率全量设置汉化字典
+        # Debrify 全应用核心 UI 词典（覆盖设置、账号、播放源、详情、列表、弹窗）
         translations = {
+            # 基础操作与通用
             "Settings": "设置",
+            "Home": "首页",
+            "Search": "搜索",
+            "Library": "媒体库",
+            "Favorites": "收藏",
+            "Watchlist": "想看列表",
+            "History": "历史记录",
+            "Downloads": "下载管理",
+            "Save": "保存",
+            "Cancel": "取消",
+            "Clear": "清除",
+            "Delete": "删除",
+            "Reset": "重置",
+            "Confirm": "确认",
+            "Close": "关闭",
+            "Back": "返回",
+            "Loading...": "加载中...",
+            "No results found": "未找到相关结果",
+            "Success": "成功",
+            "Saved successfully": "保存成功",
+
+            # 账号与 Debrid 服务商
             "Account & Debrid": "账号与 Debrid 服务",
             "Debrid Service": "Debrid 服务商",
             "API Key": "API 密钥",
             "Enter your API Key": "输入你的 API 密钥",
             "Enter your Real-Debrid API Key": "输入你的 Real-Debrid API 密钥",
             "Enter your TorBox API Key": "输入你的 TorBox API 密钥",
-            "Save": "保存",
-            "Cancel": "取消",
-            "Clear": "清除",
-            "Delete": "删除",
-            "Reset": "重置",
-            "Saved successfully": "保存成功",
+            "Enter your AllDebrid API Key": "输入你的 AllDebrid API 密钥",
+            "Connected": "已连接",
+            "Disconnected": "未连接",
+            "Connect": "连接",
+            "Disconnect": "断开连接",
             "API Key saved": "API 密钥已保存",
-            
-            # 播放设置
+
+            # 播放源与资源选择（Debrify 最核心部分）
+            "Sources": "播放源",
+            "Streams": "视频流",
+            "Cached": "已缓存 (秒播)",
+            "Uncached": "未缓存",
+            "Cached Only": "仅显示已缓存资源",
+            "Show Cached Only": "仅显示已缓存资源",
+            "Include Uncached": "包含未缓存资源",
+            "Seeders": "做种数",
+            "Size": "文件大小",
+            "Quality": "画质优先",
+            "Resolution": "分辨率",
+            "Filter out cams": "过滤枪版 (CAM)",
+            "Exclude 3D": "排除 3D 资源",
+
+            # 影视详情与播放控制
+            "Continue Watching": "继续观看",
+            "Trending": "热门趋势",
+            "Popular": "流行",
+            "Top Rated": "高分评价",
+            "Movies": "电影",
+            "TV Shows": "电视剧",
+            "Seasons": "季",
+            "Episodes": "集",
+            "Overview": "剧情简介",
+            "Cast": "演员表",
+            "Play": "播放",
+            "Trailer": "预告片",
+            "Add to Watchlist": "加入想看列表",
+            "Remove from Watchlist": "从想看列表移除",
+            "Mark as Watched": "标记为已看",
+            "Mark as Unwatched": "标记为未看",
             "Playback": "播放设置",
-            "Player": "播放器",
-            "Player Settings": "播放器设置",
+            "Player": "播放器设置",
             "Default Player": "默认播放器",
             "Internal Player": "内置播放器",
             "External Player": "外部播放器",
             "Auto Play": "自动播放",
             "Auto-play next episode": "自动播放下一集",
             "Auto Select Source": "自动选择播放源",
-            "Preferred Quality": "首选画质",
-            "Preferred Audio Language": "首选音频语言",
-            "Preferred Subtitle Language": "首选字幕语言",
             "Hardware Acceleration": "硬件加速",
             "Skip Intro": "跳过片头",
             "Skip Outro": "跳过片尾",
             "Seek Duration": "快进/快退时长",
             "Resume Playback": "恢复播放进度",
-            "Continue Watching": "继续观看",
 
-            # 字幕与源
+            # 字幕与扩展
             "Subtitles": "字幕设置",
             "Enable Subtitles": "启用字幕",
             "Subtitle Size": "字幕大小",
             "Subtitle Color": "字幕颜色",
-            "Sources": "播放源与插件",
+            "Subtitle Background": "字幕背景",
             "Indexers": "索引器",
             "Addons": "扩展插件",
             "Torrentio": "Torrentio 插件",
             "Max Results": "最大结果数量",
             "Sort By": "排序方式",
-            "Seeders": "做种数",
-            "Size": "文件大小",
-            "Quality": "画质优先",
-            "Cached Only": "仅显示已缓存资源 (秒播)",
-            "Show Cached Only": "仅显示已缓存资源",
-            "Uncached": "未缓存",
-            "Cached": "已缓存",
-            "Include Uncached": "包含未缓存资源",
 
-            # 播放列表与外观
+            # 直播播放列表
             "Playlists": "播放列表",
             "Channels": "电视直播频道",
             "EPG": "电子节目单",
             "Refresh Playlist": "刷新播放列表",
             "Auto Refresh": "自动刷新",
+
+            # 外观与常规设置
             "General": "常规设置",
             "Appearance": "外观与主题",
             "Theme": "主题模式",
@@ -114,14 +155,11 @@ jobs:
             "Import Settings": "导入设置",
             "Trakt": "Trakt 追剧同步",
             "Connect Trakt": "连接 Trakt 账号",
-            "Disconnect": "断开连接",
-            "Cache": "缓存管理",
+            "Cache Management": "缓存管理",
             "Clear Cache": "清除缓存",
             "Cache cleared": "缓存已清除",
             "Clear Search History": "清除搜索历史",
             "Clear Watch History": "清除观看历史",
-            "Downloads": "下载管理",
-            "Download Location": "下载保存位置",
 
             # 关于
             "About": "关于",
@@ -134,25 +172,38 @@ jobs:
             "License": "开源许可"
         }
 
+        # 扫描 lib 下所有 dart 文件
         files = glob.glob("lib/**/*.dart", recursive=True)
         count = 0
 
+        # 安全的前缀匹配正则：只翻译 UI 控件里的文本，绝不破坏内部逻辑 Key
+        prefix_pattern = re.compile(
+            r"(\b(?:Text|SelectableText)\s*\(\s*|\b(?:title|subtitle|label|labelText|hintText|helperText|tooltip|text|emptyMessage|description|header)\s*:\s*)(['\"])(.*?)\2",
+            re.DOTALL
+        )
+
         for filepath in files:
-            if "setting" in filepath.lower() or "screen" in filepath.lower():
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read()
-                
-                new_content = content
-                for en, zh in translations.items():
-                    # 匹配单引号和双引号包裹的 UI 文本
-                    new_content = new_content.replace(f"'{en}'", f"'{zh}'")
-                    new_content = new_content.replace(f'"{en}"', f'"{zh}"')
-                
-                if new_content != content:
-                    with open(filepath, "w", encoding="utf-8") as f:
-                        f.write(new_content)
-                    count += 1
-                    print(f"Translated: {filepath}")
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            original_content = content
+
+            def replacer(match):
+                prefix = match.group(1)
+                quote = match.group(2)
+                text = match.group(3)
+                # 如果文本精确命中我们字典里的英文，则替换为中文
+                if text in translations:
+                    return f"{prefix}{quote}{translations[text]}{quote}"
+                return match.group(0)
+
+            new_content = prefix_pattern.sub(replacer, content)
+
+            if new_content != original_content:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                count += 1
+                print(f"Safely Translated UI in: {filepath}")
 
         print(f"Total modified files: {count}")
 
