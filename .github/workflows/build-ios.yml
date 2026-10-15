@@ -1,7 +1,7 @@
 name: Build Chinese iOS IPA
 
 on:
-  workflow_dispatch: # 在 Actions 页面手动点击运行
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,128 +23,113 @@ jobs:
       run: |
         import json, os
         from pathlib import Path
-        # 如果你没有配置 TMDB_READ_ACCESS_TOKEN Secret，使用占位符防止打包中断
         token = os.environ.get("TMDB_READ_ACCESS_TOKEN", "").strip() or "eyJhbGciOiJIUzI1NiJ9"
         config = Path(os.environ["RUNNER_TEMP"]) / "debrify-build-config.json"
         config.write_text(json.dumps({"TMDB_READ_ACCESS_TOKEN": token}), encoding="utf-8")
 
-    - name: 3. Translate Settings Screen to Chinese
-      shell: python
+    - name: 3. Install Translator & Full Translate Settings
       run: |
+        pip3 install deep-translator
+        python3 - << 'EOF'
         import glob
+        import re
+        from deep_translator import GoogleTranslator
 
-        # 安全替换字典：仅替换 UI 控件文本，不触碰内部变量与逻辑 Key
-        translations = {
+        translator = GoogleTranslator(source='en', target='zh-CN')
+        cache = {}
+
+        # 核心高频术语优先精确映射（保证专业词汇翻译地道）
+        exact_dict = {
             "Settings": "设置",
-            "Account & Debrid": "账号与 Debrid 服务",
-            "Debrid Service": "Debrid 服务商",
-            "API Key": "API 密钥",
-            "Enter your API Key": "输入你的 API 密钥",
-            "Enter your Real-Debrid API Key": "输入你的 Real-Debrid API 密钥",
-            "Enter your TorBox API Key": "输入你的 TorBox API 密钥",
+            "Playback": "播放设置",
+            "Subtitles": "字幕设置",
+            "Appearance": "外观与主题",
+            "Sources": "播放源",
+            "Addons": "扩展插件",
+            "Indexers": "索引器",
+            "Downloads": "下载管理",
+            "Playlists": "播放列表",
+            "General": "常规设置",
+            "About": "关于",
             "Save": "保存",
             "Cancel": "取消",
-            "Clear": "清除",
             "Delete": "删除",
+            "Clear": "清除",
             "Reset": "重置",
-            "Saved successfully": "保存成功",
-            "API Key saved": "API 密钥已保存",
-            "Playback": "播放设置",
-            "Player": "播放器",
-            "Player Settings": "播放器设置",
+            "Cached Only": "仅显示已缓存资源",
+            "Seeders": "做种数",
             "Default Player": "默认播放器",
             "Internal Player": "内置播放器",
             "External Player": "外部播放器",
-            "Auto Play": "自动播放",
-            "Auto-play next episode": "自动播放下一集",
-            "Auto Select Source": "自动选择播放源",
-            "Preferred Quality": "首选画质",
-            "Preferred Audio Language": "首选音频语言",
-            "Preferred Subtitle Language": "首选字幕语言",
-            "Subtitles": "字幕设置",
-            "Enable Subtitles": "启用字幕",
-            "Subtitle Size": "字幕大小",
-            "Subtitle Color": "字幕颜色",
-            "Subtitle Background": "字幕背景",
-            "Hardware Acceleration": "硬件加速",
-            "Skip Intro": "跳过片头",
-            "Skip Outro": "跳过片尾",
-            "Seek Duration": "快进/快退时长",
-            "Resume Playback": "恢复播放进度",
-            "Continue Watching": "继续观看",
-            "Sources": "播放源与插件",
-            "Indexers": "索引器 (Indexers)",
-            "Addons": "扩展插件 (Addons)",
-            "Torrentio": "Torrentio 插件",
-            "Max Results": "最大结果数量",
-            "Sort By": "排序方式",
-            "Seeders": "做种数 (Seeders)",
-            "Size": "文件大小",
-            "Quality": "画质优先",
-            "Cached Only": "仅显示已缓存 (秒播)",
-            "Show Cached Only": "仅显示已缓存资源",
-            "Uncached": "未缓存",
-            "Cached": "已缓存",
-            "Include Uncached": "包含未缓存资源",
-            "Playlists": "播放列表",
-            "Channels": "电视直播频道",
-            "EPG": "电子节目单 (EPG)",
-            "Refresh Playlist": "刷新播放列表",
-            "Auto Refresh": "自动刷新",
-            "General": "常规设置",
-            "Appearance": "外观与主题",
-            "Theme": "主题模式",
-            "Dark Mode": "深色模式",
-            "Light Mode": "浅色模式",
-            "System Default": "跟随系统",
-            "AMOLED Dark": "纯黑模式 (AMOLED)",
-            "Accent Color": "强调色",
-            "Layout": "界面布局",
-            "Sync": "同步",
-            "Sync & Backup": "同步与备份",
-            "Backup & Restore": "备份与恢复",
-            "Export Settings": "导出设置",
-            "Import Settings": "导入设置",
-            "Trakt": "Trakt 追剧同步",
-            "Connect Trakt": "连接 Trakt 账号",
-            "Disconnect": "断开连接",
-            "Cache": "缓存管理",
-            "Clear Cache": "清除缓存",
-            "Cache cleared": "缓存已清除",
-            "Clear Search History": "清除搜索历史",
-            "Clear Watch History": "清除观看历史",
-            "Downloads": "下载管理",
-            "Download Location": "下载保存位置",
-            "About": "关于",
-            "Version": "当前版本",
-            "Check for Updates": "检查更新",
-            "Up to date": "已是最新版本",
-            "Update Available": "发现新版本",
-            "GitHub Repository": "GitHub 源码仓库",
-            "Report an Issue": "反馈问题",
-            "License": "开源许可"
         }
 
-        prefixes = ["Text(", "title: ", "subtitle: ", "label: ", "labelText: ", "hintText: ", "tooltip: ", "text: "]
-        files = glob.glob("lib/**/*.dart", recursive=True)
-        count = 0
+        def should_translate(s):
+            s_strip = s.strip()
+            if len(s_strip) < 2:
+                return False
+            # 排除含代码插值、路径、URL、键名格式的字符串，确保绝不改坏代码逻辑
+            if any(x in s_strip for x in ['$', '{', '}', 'http://', 'https://', 'assets/', '/', '_', '.dart', '.json']):
+                return False
+            # 必须包含英文字母
+            if not re.search(r'[A-Za-z]{2,}', s_strip):
+                return False
+            # 保留专有名词不乱翻
+            if s_strip in {'Real-Debrid', 'TorBox', 'AllDebrid', 'Premiumize', 'Trakt', 'Stremio', 'Torrentio', 'TMDB', 'Debrify', 'WebDAV', 'MPV', 'VLC', 'Infuse', 'Outplayer', 'VidHub', 'SenPlayer'}:
+                return False
+            return True
+
+        def translate_text(text):
+            if text in exact_dict:
+                return exact_dict[text]
+            if text in cache:
+                return cache[text]
+            try:
+                zh = translator.translate(text)
+                if zh:
+                    # 避免翻译结果中出现破坏 Dart 字符串的引号
+                    zh = zh.replace("'", " ").replace('"', " ").replace("\n", " ")
+                    cache[text] = zh
+                    print(f"  [译] {text}  -->  {zh}")
+                    return zh
+            except Exception as e:
+                print(f"  [跳过] {text}: {e}")
+            cache[text] = text
+            return text
+
+        # 扫描所有与设置和界面相关的 dart 文件
+        files = sorted(set(
+            glob.glob("lib/**/*setting*.dart", recursive=True) +
+            glob.glob("lib/**/settings/**/*.dart", recursive=True) +
+            glob.glob("lib/screens/**/*.dart", recursive=True)
+        ))
+        print(f"找到 {len(files)} 个界面/设置文件准备汉化...")
+
+        # 匹配 Text('...'), title: '...', subtitle: '...', label: '...', hintText: '...', helperText: '...' 等（支持跨行空白）
+        pattern = re.compile(
+            r"(\b(?:Text|SelectableText)\s*\(\s*|\b(?:title|subtitle|label|labelText|hintText|helperText|tooltip|text|emptyMessage|description|header)\s*:\s*)(['\"])([^'\"\n]{2,160})\2"
+        )
 
         for filepath in files:
-            if "setting" in filepath.lower() or "screen" in filepath.lower():
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read()
-                new_content = content
-                for en, zh in translations.items():
-                    for p in prefixes:
-                        new_content = new_content.replace(f"{p}'{en}'", f"{p}'{zh}'")
-                        new_content = new_content.replace(f'{p}"{en}"', f'{p}"{zh}"')
-                if new_content != content:
-                    with open(filepath, "w", encoding="utf-8") as f:
-                        f.write(new_content)
-                    count += 1
-                    print(f"Translated: {filepath}")
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
 
-        print(f"Total translated files: {count}")
+            def replacer(match):
+                prefix = match.group(1)
+                quote = match.group(2)
+                eng = match.group(3)
+                if should_translate(eng):
+                    zh = translate_text(eng)
+                    return f"{prefix}{quote}{zh}{quote}"
+                return match.group(0)
+
+            new_content = pattern.sub(replacer, content)
+            if new_content != content:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                print(f"✅ 已完成文件汉化: {filepath}")
+
+        print(f"🎉 全部汉化完成，共翻译了 {len(cache)} 条不同的界面语句！")
+        EOF
 
     - name: 4. Setup Flutter (Pinned 3.44.8)
       uses: subosito/flutter-action@v2
