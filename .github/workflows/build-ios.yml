@@ -1,168 +1,203 @@
 name: Build Chinese iOS IPA
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
+  workflow_dispatch: # 在 Actions 页面手动点击运行
+
+permissions:
+  contents: read
 
 jobs:
-  build-ios:
+  ios:
     name: Translate Settings & Build IPA
-    runs-on: macos-15
+    runs-on: macos-latest
     timeout-minutes: 60
 
     steps:
-      - name: 1. Checkout Code
-        uses: actions/checkout@v5
+    - name: 1. Checkout code
+      uses: actions/checkout@v4
 
-      - name: 2. Translate Settings Screen
-        shell: python3 {0}
-        run: |
-          import glob
-          import re
+    - name: 2. Configure TMDB build token (Auto-fallback if empty)
+      shell: python
+      env:
+        TMDB_READ_ACCESS_TOKEN: ${{ secrets.TMDB_READ_ACCESS_TOKEN }}
+      run: |
+        import json, os
+        from pathlib import Path
+        # 如果你没有配置 TMDB_READ_ACCESS_TOKEN Secret，使用占位符防止打包中断
+        token = os.environ.get("TMDB_READ_ACCESS_TOKEN", "").strip() or "eyJhbGciOiJIUzI1NiJ9"
+        config = Path(os.environ["RUNNER_TEMP"]) / "debrify-build-config.json"
+        config.write_text(json.dumps({"TMDB_READ_ACCESS_TOKEN": token}), encoding="utf-8")
 
-          translations = {
-              "Settings": "设置",
-              "Account & Debrid": "账号与 Debrid 服务",
-              "Debrid Service": "Debrid 服务商",
-              "API Key": "API 密钥",
-              "Enter your API Key": "输入你的 API 密钥",
-              "Enter your Real-Debrid API Key": "输入你的 Real-Debrid API 密钥",
-              "Enter your TorBox API Key": "输入你的 TorBox API 密钥",
-              "Save": "保存",
-              "Cancel": "取消",
-              "Clear": "清除",
-              "Delete": "删除",
-              "Reset": "重置",
-              "Saved successfully": "保存成功",
-              "API Key saved": "API 密钥已保存",
-              "Playback": "播放设置",
-              "Player": "播放器",
-              "Player Settings": "播放器设置",
-              "Default Player": "默认播放器",
-              "Internal Player": "内置播放器",
-              "External Player": "外部播放器",
-              "Auto Play": "自动播放",
-              "Auto-play next episode": "自动播放下一集",
-              "Auto Select Source": "自动选择播放源",
-              "Preferred Quality": "首选画质",
-              "Preferred Audio Language": "首选音频语言",
-              "Preferred Subtitle Language": "首选字幕语言",
-              "Subtitles": "字幕设置",
-              "Enable Subtitles": "启用字幕",
-              "Subtitle Size": "字幕大小",
-              "Subtitle Color": "字幕颜色",
-              "Subtitle Background": "字幕背景",
-              "Hardware Acceleration": "硬件加速",
-              "Skip Intro": "跳过片头",
-              "Skip Outro": "跳过片尾",
-              "Seek Duration": "快进/快退时长",
-              "Resume Playback": "恢复播放进度",
-              "Continue Watching": "继续观看",
-              "Sources": "资源与插件源",
-              "Indexers": "索引器 (Indexers)",
-              "Addons": "扩展插件 (Addons)",
-              "Torrentio": "Torrentio 插件",
-              "Max Results": "最大结果数量",
-              "Sort By": "排序方式",
-              "Seeders": "做种数 (Seeders)",
-              "Size": "文件大小",
-              "Quality": "画质优先",
-              "Cached Only": "仅显示已缓存资源 (秒播)",
-              "Show Cached Only": "仅显示已缓存资源",
-              "Uncached": "未缓存",
-              "Cached": "已缓存",
-              "Include Uncached": "包含未缓存资源",
-              "Filter out cams": "过滤枪版 (CAM) 资源",
-              "Exclude 3D": "排除 3D 资源",
-              "HDR / Dolby Vision": "HDR / 杜比视界",
-              "Playlists": "播放列表",
-              "Channels": "电视直播频道",
-              "EPG": "电子节目单 (EPG)",
-              "Refresh Playlist": "刷新播放列表",
-              "Auto Refresh": "自动刷新",
-              "General": "常规设置",
-              "Appearance": "外观与主题",
-              "Theme": "主题模式",
-              "Dark Mode": "深色模式",
-              "Light Mode": "浅色模式",
-              "System Default": "跟随系统",
-              "AMOLED Dark": "纯黑模式 (AMOLED)",
-              "Accent Color": "强调色",
-              "Layout": "界面布局",
-              "Grid Size": "海报网格大小",
-              "Show Posters": "显示海报",
-              "Sync": "同步",
-              "Sync & Backup": "同步与备份",
-              "Backup & Restore": "备份与恢复",
-              "Export Settings": "导出设置",
-              "Import Settings": "导入设置",
-              "Trakt": "Trakt 追剧同步",
-              "Connect Trakt": "连接 Trakt 账号",
-              "Disconnect": "断开连接",
-              "Cache": "缓存管理",
-              "Clear Cache": "清除缓存",
-              "Cache cleared": "缓存已清除",
-              "Clear Search History": "清除搜索历史",
-              "Clear Watch History": "清除观看历史",
-              "Downloads": "下载管理",
-              "Download Location": "下载保存位置",
-              "About": "关于",
-              "Version": "当前版本",
-              "Check for Updates": "检查更新",
-              "Up to date": "已是最新版本",
-              "Update Available": "发现新版本",
-              "GitHub Repository": "GitHub 源码仓库",
-              "Report an Issue": "反馈问题",
-              "License": "开源许可"
-          }
+    - name: 3. Translate Settings Screen to Chinese
+      shell: python
+      run: |
+        import glob
 
-          files = set(glob.glob("lib/**/*setting*.dart", recursive=True) + glob.glob("lib/screens/**/*.dart", recursive=True))
-          print(f"Found {len(files)} target files.")
+        # 安全替换字典：仅替换 UI 控件文本，不触碰内部变量与逻辑 Key
+        translations = {
+            "Settings": "设置",
+            "Account & Debrid": "账号与 Debrid 服务",
+            "Debrid Service": "Debrid 服务商",
+            "API Key": "API 密钥",
+            "Enter your API Key": "输入你的 API 密钥",
+            "Enter your Real-Debrid API Key": "输入你的 Real-Debrid API 密钥",
+            "Enter your TorBox API Key": "输入你的 TorBox API 密钥",
+            "Save": "保存",
+            "Cancel": "取消",
+            "Clear": "清除",
+            "Delete": "删除",
+            "Reset": "重置",
+            "Saved successfully": "保存成功",
+            "API Key saved": "API 密钥已保存",
+            "Playback": "播放设置",
+            "Player": "播放器",
+            "Player Settings": "播放器设置",
+            "Default Player": "默认播放器",
+            "Internal Player": "内置播放器",
+            "External Player": "外部播放器",
+            "Auto Play": "自动播放",
+            "Auto-play next episode": "自动播放下一集",
+            "Auto Select Source": "自动选择播放源",
+            "Preferred Quality": "首选画质",
+            "Preferred Audio Language": "首选音频语言",
+            "Preferred Subtitle Language": "首选字幕语言",
+            "Subtitles": "字幕设置",
+            "Enable Subtitles": "启用字幕",
+            "Subtitle Size": "字幕大小",
+            "Subtitle Color": "字幕颜色",
+            "Subtitle Background": "字幕背景",
+            "Hardware Acceleration": "硬件加速",
+            "Skip Intro": "跳过片头",
+            "Skip Outro": "跳过片尾",
+            "Seek Duration": "快进/快退时长",
+            "Resume Playback": "恢复播放进度",
+            "Continue Watching": "继续观看",
+            "Sources": "播放源与插件",
+            "Indexers": "索引器 (Indexers)",
+            "Addons": "扩展插件 (Addons)",
+            "Torrentio": "Torrentio 插件",
+            "Max Results": "最大结果数量",
+            "Sort By": "排序方式",
+            "Seeders": "做种数 (Seeders)",
+            "Size": "文件大小",
+            "Quality": "画质优先",
+            "Cached Only": "仅显示已缓存 (秒播)",
+            "Show Cached Only": "仅显示已缓存资源",
+            "Uncached": "未缓存",
+            "Cached": "已缓存",
+            "Include Uncached": "包含未缓存资源",
+            "Playlists": "播放列表",
+            "Channels": "电视直播频道",
+            "EPG": "电子节目单 (EPG)",
+            "Refresh Playlist": "刷新播放列表",
+            "Auto Refresh": "自动刷新",
+            "General": "常规设置",
+            "Appearance": "外观与主题",
+            "Theme": "主题模式",
+            "Dark Mode": "深色模式",
+            "Light Mode": "浅色模式",
+            "System Default": "跟随系统",
+            "AMOLED Dark": "纯黑模式 (AMOLED)",
+            "Accent Color": "强调色",
+            "Layout": "界面布局",
+            "Sync": "同步",
+            "Sync & Backup": "同步与备份",
+            "Backup & Restore": "备份与恢复",
+            "Export Settings": "导出设置",
+            "Import Settings": "导入设置",
+            "Trakt": "Trakt 追剧同步",
+            "Connect Trakt": "连接 Trakt 账号",
+            "Disconnect": "断开连接",
+            "Cache": "缓存管理",
+            "Clear Cache": "清除缓存",
+            "Cache cleared": "缓存已清除",
+            "Clear Search History": "清除搜索历史",
+            "Clear Watch History": "清除观看历史",
+            "Downloads": "下载管理",
+            "Download Location": "下载保存位置",
+            "About": "关于",
+            "Version": "当前版本",
+            "Check for Updates": "检查更新",
+            "Up to date": "已是最新版本",
+            "Update Available": "发现新版本",
+            "GitHub Repository": "GitHub 源码仓库",
+            "Report an Issue": "反馈问题",
+            "License": "开源许可"
+        }
 
-          sorted_keys = sorted(translations.keys(), key=len, reverse=True)
+        prefixes = ["Text(", "title: ", "subtitle: ", "label: ", "labelText: ", "hintText: ", "tooltip: ", "text: "]
+        files = glob.glob("lib/**/*.dart", recursive=True)
+        count = 0
 
-          for filepath in files:
-              with open(filepath, "r", encoding="utf-8") as f:
-                  content = f.read()
+        for filepath in files:
+            if "setting" in filepath.lower() or "screen" in filepath.lower():
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                new_content = content
+                for en, zh in translations.items():
+                    for p in prefixes:
+                        new_content = new_content.replace(f"{p}'{en}'", f"{p}'{zh}'")
+                        new_content = new_content.replace(f'{p}"{en}"', f'{p}"{zh}"')
+                if new_content != content:
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        f.write(new_content)
+                    count += 1
+                    print(f"Translated: {filepath}")
 
-              original = content
-              for en in sorted_keys:
-                  zh = translations[en]
-                  ui_pattern_single = rf"(Text\(\s*|title:\s*|subtitle:\s*|label:\s*|labelText:\s*|hintText:\s*|tooltip:\s*|text:\s*)'{re.escape(en)}'"
-                  ui_pattern_double = rf'(Text\(\s*|title:\s*|subtitle:\s*|label:\s*|labelText:\s*|hintText:\s*|tooltip:\s*|text:\s*)"{re.escape(en)}"'
-                  content = re.sub(ui_pattern_single, rf"\1'{zh}'", content)
-                  content = re.sub(ui_pattern_double, rf'\1"{zh}"', content)
+        print(f"Total translated files: {count}")
 
-              if content != original:
-                  with open(filepath, "w", encoding="utf-8") as f:
-                      f.write(content)
-                  print(f"Translated: {filepath}")
+    - name: 4. Setup Flutter (Pinned 3.44.8)
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.44.8'
+        channel: 'stable'
 
-      - name: 3. Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
+    - name: 5. Get dependencies
+      run: flutter pub get
 
-      - name: 4. Install Flutter Dependencies
-        run: flutter pub get
+    - name: 6. Build iOS (unsigned)
+      run: flutter build ios --release --dart-define=DEBRIFY_LOCAL_VALIDATION=false --no-codesign --dart-define-from-file="${{ runner.temp }}/debrify-build-config.json"
 
-      - name: 5. Build iOS Application (Unsigned)
-        run: |
-          flutter build ios --release --no-codesign
+    - name: 7. Ad-hoc sign for sideloading
+      run: |
+        set -euo pipefail
+        APP=build/ios/iphoneos/Runner.app
+        for d in "$APP"/Frameworks/*.dylib; do
+          [ -f "$d" ] && codesign -f -s - --timestamp=none "$d"
+        done
+        for f in "$APP"/Frameworks/*.framework; do
+          [ -d "$f" ] && codesign -f -s - --timestamp=none "$f"
+        done
+        codesign -f -s - --timestamp=none "$APP"
 
-      - name: 6. Package into IPA
-        run: |
-          mkdir -p Payload
-          cp -r build/ios/iphoneos/Runner.app Payload/
-          zip -r -9 debrify-ios-zh-unsigned.ipa Payload
-          ls -lh debrify-ios-zh-unsigned.ipa
+        missing=0
+        check() {
+          if [ -f "$1" ] && [ "$(otool -l "$1" | grep -c LC_CODE_SIGNATURE)" -eq 0 ]; then
+            echo "::error::no LC_CODE_SIGNATURE in $1"
+            missing=$((missing + 1))
+          fi
+        }
+        check "$APP/Runner"
+        for d in "$APP"/Frameworks/*.dylib; do check "$d"; done
+        for f in "$APP"/Frameworks/*.framework; do
+          check "$f/$(basename "$f" .framework)"
+        done
+        if [ "$missing" -ne 0 ]; then
+          echo "::error::$missing binary(ies) left unsigned; IPA would not sideload"
+          exit 1
+        fi
+        echo "all binaries carry LC_CODE_SIGNATURE"
 
-      - name: 7. Upload IPA Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: debrify-ios-zh-unsigned
-          path: debrify-ios-zh-unsigned.ipa
-          retention-days: 7
+    - name: 8. Create unsigned IPA
+      run: |
+        cd build/ios/iphoneos
+        mkdir -p Payload
+        cp -R Runner.app Payload/
+        zip -r debrify-zh-unsigned.ipa Payload
+        rm -rf Payload
+
+    - name: 9. Upload IPA as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: debrify-ios-zh
+        path: build/ios/iphoneos/debrify-zh-unsigned.ipa
