@@ -1,51 +1,118 @@
-name: Build iOS IPA
+name: Build Chinese iOS IPA
 
 on:
-  workflow_dispatch: # 允许在 GitHub 网页上手动点击按钮触发打包
+  workflow_dispatch: # 支持在 Actions 页面手动点击按钮运行
   push:
     branches:
-      - main # 或者你的默认分支，每次提交自动触发
+      - main
 
 jobs:
   build-ios:
-    name: Build Unsigned IPA
-    runs-on: macos-14 # 使用 GitHub 提供的 Apple Silicon macOS 运行环境
+    name: Translate & Build Unsigned IPA
+    runs-on: macos-14
     timeout-minutes: 60
 
     steps:
-      - name: Checkout Code
+      - name: 1. Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Java (for tools if needed)
+      - name: 2. Set up Python & Translate Settings via AI
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+          BASE_URL: ${{ secrets.BASE_URL }}
+          MODEL_NAME: ${{ secrets.MODEL_NAME }}
+        run: |
+          pip3 install openai
+          cat << 'EOF' > translate_settings.py
+          import os
+          import glob
+          import re
+          from openai import OpenAI
+
+          api_key = os.environ.get("API_KEY")
+          base_url = os.environ.get("BASE_URL") or "https://api.openai.com/v1"
+          model_name = os.environ.get("MODEL_NAME") or "gpt-4o-mini"
+
+          if not api_key:
+              print("⚠️ 未检测到 API_KEY Secret，跳过自动翻译步骤。")
+              exit(0)
+
+          client = OpenAI(api_key=api_key, base_url=base_url)
+
+          prompt = """你是一个精通 Flutter/Dart 的本地化专家。
+          请将以下 Dart 代码中所有面向用户的英文 UI 字符串（包括 title, subtitle, label, Text, hintText, SnackBar, Dialog, AppBar, 按钮文字、设置项描述等）全部翻译为自然、准确的简体中文。
+          严格遵守以下规则：
+          1. 绝对不要修改任何变量名、函数名、类名、枚举名、Key、路由名称、SharedPreferences 的 key 或任何逻辑代码。
+          2. 保持原有的引号格式（单引号/双引号）和字符串插值（如 $variable 或 ${expr}）完全不变。
+          3. 专有名词如 Real-Debrid, TorBox, AllDebrid, Premiumize, Trakt, Simkl, Stremio, WebDAV, API Key, Torrentio 等保持英文。
+          4. 只输出完整的、可直接编译的 Dart 源码，绝对不要包含 ```dart 代码块标记或任何解释说明。"""
+
+          # 查找所有与设置页面相关的 dart 文件
+          patterns = [
+              "lib/**/*setting*.dart",
+              "lib/**/settings/**/*.dart"
+          ]
+          files = set()
+          for p in patterns:
+              files.update(glob.glob(p, recursive=True))
+
+          print(f"找到 {len(files)} 个设置相关文件待翻译: {files}")
+
+          for filepath in sorted(files):
+              with open(filepath, "r", encoding="utf-8") as f:
+                  content = f.read()
+
+              print(f"正在翻译: {filepath} ...")
+              try:
+                  response = client.chat.completions.create(
+                      model=model_name,
+                      messages=[
+                          {"role": "system", "content": prompt},
+                          {"role": "user", "content": content}
+                      ],
+                      temperature=0.1
+                  )
+                  translated = response.choices[0].message.content.strip()
+                  # 剥离可能附带的 markdown 代码块包裹
+                  translated = re.sub(r"^```[a-zA-Z]*\n", "", translated)
+                  translated = re.sub(r"\n```$", "", translated)
+
+                  with open(filepath, "w", encoding="utf-8") as f:
+                      f.write(translated)
+                  print(f"✅ 完成翻译: {filepath}")
+              except Exception as e:
+                  print(f"❌ 翻译失败 {filepath}: {e}")
+          EOF
+          python3 translate_settings.py
+          rm -f translate_settings.py
+
+      - name: 3. Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Set up Flutter
+      - name: 4. Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
-      - name: Verify Flutter Installation
-        run: flutter doctor -v
-
-      - name: Install Dependencies
+      - name: 5. Install Flutter Dependencies
         run: flutter pub get
 
-      - name: Build iOS Application (Unsigned)
+      - name: 6. Build iOS Application (Unsigned)
         run: |
           flutter build ios --release --no-codesign
 
-      - name: Package to IPA
+      - name: 7. Package into IPA
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
           zip -r -9 debrify-ios-zh-unsigned.ipa Payload
           ls -lh debrify-ios-zh-unsigned.ipa
 
-      - name: Upload IPA Artifact
+      - name: 8. Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: debrify-ios-zh-unsigned
