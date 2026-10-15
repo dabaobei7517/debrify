@@ -1,0 +1,53 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch: # 允许在 GitHub 网页上手动点击按钮触发打包
+  push:
+    branches:
+      - main # 或者你的默认分支，每次提交自动触发
+
+jobs:
+  build-ios:
+    name: Build Unsigned IPA
+    runs-on: macos-14 # 使用 GitHub 提供的 Apple Silicon macOS 运行环境
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java (for tools if needed)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Verify Flutter Installation
+        run: flutter doctor -v
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build iOS Application (Unsigned)
+        run: |
+          flutter build ios --release --no-codesign
+
+      - name: Package to IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r -9 debrify-ios-zh-unsigned.ipa Payload
+          ls -lh debrify-ios-zh-unsigned.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debrify-ios-zh-unsigned
+          path: debrify-ios-zh-unsigned.ipa
+          retention-days: 7
