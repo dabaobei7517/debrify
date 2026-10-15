@@ -1,4 +1,4 @@
-name: Build Chinese iOS IPA (Full Auto-Translation Edition)
+name: Debrify Chinese iOS IPA
 
 on:
   workflow_dispatch:
@@ -6,173 +6,79 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: debrify-ios-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  ios:
-    name: Build Auto-Translated IPA
-    runs-on: macos-latest
+  build-ios:
+    name: Build Unsigned iOS IPA
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
-    - name: 1. Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-    - name: 2. Configure TMDB build token (Auto-fallback if empty)
-      shell: python
-      env:
-        TMDB_READ_ACCESS_TOKEN: ${{ secrets.TMDB_READ_ACCESS_TOKEN }}
-      run: |
-        import json, os
-        from pathlib import Path
-        token = os.environ.get("TMDB_READ_ACCESS_TOKEN", "").strip() or "eyJhbGciOiJIUzI1NiJ9"
-        config = Path(os.environ["RUNNER_TEMP"]) / "debrify-build-config.json"
-        config.write_text(json.dumps({"TMDB_READ_ACCESS_TOKEN": token}), encoding="utf-8")
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.8"
+          channel: stable
+          cache: true
 
-    - name: 3. Full-Auto Deep Translation of All UI Strings
-      shell: python
-      run: |
-        import glob
-        import re
-        from deep_translator import GoogleTranslator
+      - name: Show build environment
+        run: |
+          flutter --version
+          xcodebuild -version
 
-        # 使用谷歌翻译免费接口，自动把所有 UI 文本全量转成简体中文
-        translator = GoogleTranslator(source='en', target='zh-CN')
-        cache = {}
+      - name: Install Flutter dependencies
+        run: flutter pub get
 
-        # 核心专业术语强制定制（避免机翻得不伦不类）
-        forced_dict = {
-            "Settings": "设置",
-            "Playback": "播放设置",
-            "Subtitles": "字幕设置",
-            "Appearance": "外观与主题",
-            "Sources": "播放源",
-            "Downloads": "下载管理",
-            "Playlists": "播放列表",
-            "General": "常规设置",
-            "Account & Debrid": "账号与 Debrid 服务",
-            "Real-Debrid": "Real-Debrid",
-            "TorBox": "TorBox",
-            "AllDebrid": "AllDebrid",
-            "Trakt": "Trakt 追剧同步",
-            "API Key": "API 密钥",
-            "Cached Only": "仅显示已缓存资源 (秒播)",
-            "Default Player": "默认播放器",
-            "Internal Player": "内置播放器",
-            "External Player": "外部播放器",
-            "Auto Play": "自动播放",
-            "Hardware Acceleration": "硬件加速"
-        }
+      - name: Verify iOS project
+        run: |
+          test -f pubspec.yaml
+          test -d ios
+          test -f ios/Runner.xcodeproj/project.pbxproj
 
-        def smart_translate(text):
-            text_clean = text.strip()
-            if text_clean in forced_dict:
-                return forced_dict[text_clean]
-            if not text_clean or len(text_clean) < 2:
-                return text
-            # 过滤掉代码变量、网址、特殊符号
-            if any(k in text_clean for k in ['$', '{', '}', 'http://', 'https://', '/', '_', '.dart']):
-                return text
-            if not re.search(r'[A-Za-z]', text_clean):
-                return text
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign
 
-            if text_clean in cache:
-                return cache[text_clean]
+      - name: Package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
 
-            try:
-                translated = translator.translate(text_clean)
-                if translated:
-                    # 清理可能破坏 Dart 语法的引号
-                    translated = translated.replace("'", "").replace('"', "").strip()
-                    cache[text_clean] = translated
-                    print(f"Auto-Translated: '{text_clean}' -> '{translated}'")
-                    return translated
-            except Exception as e:
-                pass
-            
-            cache[text_clean] = text_clean
-            return text_clean
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          PACKAGE_DIR="dist/Payload"
+          IPA_PATH="dist/Debrify-Chinese-Unsigned.ipa"
 
-        # 安装翻译依赖
-        import os
-        os.system("pip3 install deep-translator")
-
-        # 扫描所有设置和界面相关的 Dart 文件
-        files = glob.glob("lib/**/*.dart", recursive=True)
-        pattern = re.compile(r"(\b(?:Text|title|subtitle|label|labelText|hintText|helperText|tooltip|text|description)\s*:\s*|\bText\s*\(\s*)(['\"])([^'\"]+)\2")
-
-        count = 0
-        for filepath in files:
-            if any(k in filepath.lower() for k in ["setting", "screen", "view", "page", "account"]):
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                def replacer(match):
-                    prefix = match.group(1)
-                    quote = match.group(2)
-                    original_text = match.group(3)
-                    new_text = smart_translate(original_text)
-                    return f"{prefix}{quote}{new_text}{quote}"
-
-                new_content = pattern.sub(replacer, content)
-                if new_content != content:
-                    with open(filepath, "w", encoding="utf-8") as f:
-                        f.write(new_content)
-                    count += 1
-                    print(f"Updated File: {filepath}")
-
-        print(f"Total files auto-translated: {count}")
-
-    - name: 4. Setup Flutter (Pinned 3.44.8)
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.44.8'
-        channel: 'stable'
-
-    - name: 5. Get dependencies
-      run: flutter pub get
-
-    - name: 6. Build iOS (unsigned)
-      run: flutter build ios --release --dart-define=DEBRIFY_LOCAL_VALIDATION=false --no-codesign --dart-define-from-file="${{ runner.temp }}/debrify-build-config.json"
-
-    - name: 7. Ad-hoc sign for sideloading
-      run: |
-        set -euo pipefail
-        APP=build/ios/iphoneos/Runner.app
-        for d in "$APP"/Frameworks/*.dylib; do
-          [ -f "$d" ] && codesign -f -s - --timestamp=none "$d"
-        done
-        for f in "$APP"/Frameworks/*.framework; do
-          [ -d "$f" ] && codesign -f -s - --timestamp=none "$f"
-        done
-        codesign -f -s - --timestamp=none "$APP"
-
-        missing=0
-        check() {
-          if [ -f "$1" ] && [ "$(otool -l "$1" | grep -c LC_CODE_SIGNATURE)" -eq 0 ]; then
-            echo "::error::no LC_CODE_SIGNATURE in $1"
-            missing=$((missing + 1))
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Build output Runner.app not found"
+            exit 1
           fi
-        }
-        check "$APP/Runner"
-        for d in "$APP"/Frameworks/*.dylib; do check "$d"; done
-        for f in "$APP"/Frameworks/*.framework; do
-          check "$f/$(basename "$f" .framework)"
-        done
-        if [ "$missing" -ne 0 ]; then
-          echo "::error::$missing binary(ies) left unsigned; IPA would not sideload"
-          exit 1
-        fi
-        echo "all binaries carry LC_CODE_SIGNATURE"
 
-    - name: 8. Create unsigned IPA
-      run: |
-        cd build/ios/iphoneos
-        mkdir -p Payload
-        cp -R Runner.app Payload/
-        zip -r debrify-zh-unsigned.ipa Payload
-        rm -rf Payload
+          rm -rf dist
+          mkdir -p "$PACKAGE_DIR"
 
-    - name: 9. Upload IPA as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: debrify-ios-zh
-        path: build/ios/iphoneos/debrify-zh-unsigned.ipa
+          ditto "$APP_PATH" "$PACKAGE_DIR/Runner.app"
+
+          (
+            cd dist
+            /usr/bin/zip -qry \
+              Debrify-Chinese-Unsigned.ipa Payload
+          )
+
+          test -s "$IPA_PATH"
+          /usr/bin/unzip -t "$IPA_PATH"
+
+          echo "IPA generated successfully"
+          ls -lh "$IPA_PATH"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Debrify-Chinese-Unsigned-IPA
+          path: dist/Debrify-Chinese-Unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
