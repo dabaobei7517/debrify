@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-ios:
-    name: Translate & Build Unsigned IPA
+    name: Translate Settings & Build IPA
     runs-on: macos-14
     timeout-minutes: 60
 
@@ -16,72 +16,148 @@ jobs:
       - name: 1. Checkout Code
         uses: actions/checkout@v4
 
-      - name: 2. Set up Python & Translate Settings via AI
-        env:
-          API_KEY: ${{ secrets.API_KEY }}
-          BASE_URL: ${{ secrets.BASE_URL }}
-          MODEL_NAME: ${{ secrets.MODEL_NAME }}
+      - name: 2. Translate Settings Screen (No API Key Needed)
         run: |
-          pip3 install openai
           cat << 'EOF' > translate_settings.py
-          import os
           import glob
           import re
-          from openai import OpenAI
 
-          api_key = os.environ.get("API_KEY")
-          base_url = os.environ.get("BASE_URL") or "https://api.openai.com/v1"
-          model_name = os.environ.get("MODEL_NAME") or "gpt-4o-mini"
+          # Debrify 设置页面全量精准汉化词典（按长短排序防止部分覆盖）
+          translations = {
+              # 页面主标题与分类
+              "Settings": "设置",
+              "Account & Debrid": "账号与 Debrid 服务",
+              "Real-Debrid": "Real-Debrid",
+              "TorBox": "TorBox",
+              "AllDebrid": "AllDebrid",
+              "Premiumize": "Premiumize",
+              "Debrid Service": "Debrid 服务商",
+              "API Key": "API 密钥",
+              "Enter your API Key": "输入你的 API 密钥",
+              "Enter your Real-Debrid API Key": "输入你的 Real-Debrid API 密钥",
+              "Enter your TorBox API Key": "输入你的 TorBox API 密钥",
+              "Save": "保存",
+              "Cancel": "取消",
+              "Clear": "清除",
+              "Delete": "删除",
+              "Reset": "重置",
+              "Saved successfully": "保存成功",
+              "API Key saved": "API 密钥已保存",
 
-          if not api_key:
-              print("⚠️ 未检测到 API_KEY Secret，跳过自动翻译步骤。")
-              exit(0)
+              # 播放与视频设置
+              "Playback": "播放设置",
+              "Player": "播放器",
+              "Player Settings": "播放器设置",
+              "Default Player": "默认播放器",
+              "Internal Player": "内置播放器",
+              "External Player": "外部播放器",
+              "Auto Play": "自动播放",
+              "Auto-play next episode": "自动播放下一集",
+              "Auto Select Source": "自动选择播放源",
+              "Preferred Quality": "首选画质",
+              "Preferred Audio Language": "首选音频语言",
+              "Preferred Subtitle Language": "首选字幕语言",
+              "Subtitles": "字幕设置",
+              "Enable Subtitles": "启用字幕",
+              "Subtitle Size": "字幕大小",
+              "Subtitle Color": "字幕颜色",
+              "Subtitle Background": "字幕背景",
+              "Hardware Acceleration": "硬件加速",
+              "Skip Intro": "跳过片头",
+              "Skip Outro": "跳过片尾",
+              "Seek Duration": "快进/快退时长",
+              "Resume Playback": "恢复播放进度",
+              "Continue Watching": "继续观看",
 
-          client = OpenAI(api_key=api_key, base_url=base_url)
+              # 搜索与源设置 (Torrents / Indexers / Stremio)
+              "Sources": "资源与插件源",
+              "Indexers": "索引器 (Indexers)",
+              "Addons": "扩展插件 (Addons)",
+              "Torrentio": "Torrentio 插件",
+              "Max Results": "最大结果数量",
+              "Sort By": "排序方式",
+              "Seeders": "做种数 (Seeders)",
+              "Size": "文件大小",
+              "Quality": "画质优先",
+              "Cached Only": "仅显示已缓存资源 (秒播)",
+              "Show Cached Only": "仅显示已缓存资源",
+              "Uncached": "未缓存",
+              "Cached": "已缓存",
+              "Include Uncached": "包含未缓存资源",
+              "Filter out cams": "过滤枪版 (CAM) 资源",
+              "Exclude 3D": "排除 3D 资源",
+              "HDR / Dolby Vision": "HDR / 杜比视界",
 
-          prompt = """你是一个精通 Flutter/Dart 的本地化专家。
-          请将以下 Dart 代码中所有面向用户的英文 UI 字符串（包括 title, subtitle, label, Text, hintText, SnackBar, Dialog, AppBar, 按钮文字、设置项描述等）全部翻译为自然、准确的简体中文。
-          严格遵守以下规则：
-          1. 绝对不要修改任何变量名、函数名、类名、枚举名、Key、路由名称、SharedPreferences 的 key 或任何逻辑代码。
-          2. 保持原有的引号格式（单引号/双引号）和字符串插值（如 $variable 或 ${expr}）完全不变。
-          3. 专有名词如 Real-Debrid, TorBox, AllDebrid, Premiumize, Trakt, Simkl, Stremio, WebDAV, API Key, Torrentio 等保持英文。
-          4. 只输出完整的、可直接编译的 Dart 源码，绝对不要包含 ```dart 代码块标记或任何解释说明。"""
+              # 直播与播放列表 (IPTV / Playlists)
+              "Playlists": "播放列表",
+              "Channels": "电视直播频道",
+              "EPG": "电子节目单 (EPG)",
+              "Refresh Playlist": "刷新播放列表",
+              "Auto Refresh": "自动刷新",
 
-          # 查找所有与设置页面相关的 dart 文件
-          patterns = [
-              "lib/**/*setting*.dart",
-              "lib/**/settings/**/*.dart"
-          ]
-          files = set()
-          for p in patterns:
-              files.update(glob.glob(p, recursive=True))
+              # 外观与常规设置
+              "General": "常规设置",
+              "Appearance": "外观与主题",
+              "Theme": "主题模式",
+              "Dark Mode": "深色模式",
+              "Light Mode": "浅色模式",
+              "System Default": "跟随系统",
+              "AMOLED Dark": "纯黑模式 (AMOLED)",
+              "Accent Color": "强调色",
+              "Layout": "界面布局",
+              "Grid Size": "海报网格大小",
+              "Show Posters": "显示海报",
 
-          print(f"找到 {len(files)} 个设置相关文件待翻译: {files}")
+              # 同步、备份与缓存
+              "Sync": "同步",
+              "Sync & Backup": "同步与备份",
+              "Backup & Restore": "备份与恢复",
+              "Export Settings": "导出设置",
+              "Import Settings": "导入设置",
+              "Trakt": "Trakt 追剧同步",
+              "Connect Trakt": "连接 Trakt 账号",
+              "Disconnect": "断开连接",
+              "Cache": "缓存管理",
+              "Clear Cache": "清除缓存",
+              "Cache cleared": "缓存已清除",
+              "Clear Search History": "清除搜索历史",
+              "Clear Watch History": "清除观看历史",
+              "Downloads": "下载管理",
+              "Download Location": "下载保存位置",
 
-          for filepath in sorted(files):
+              # 关于与更新
+              "About": "关于",
+              "Version": "当前版本",
+              "Check for Updates": "检查更新",
+              "Up to date": "已是最新版本",
+              "Update Available": "发现新版本",
+              "GitHub Repository": "GitHub 源码仓库",
+              "Report an Issue": "反馈问题",
+              "License": "开源许可"
+          }
+
+          # 扫描设置相关的所有源码文件
+          files = set(glob.glob("lib/**/*setting*.dart", recursive=True) + glob.glob("lib/screens/*.dart"))
+          print(f"扫描到目标文件: {files}")
+
+          # 按英文长度降序排列，优先替换长句子，避免短词破坏长句
+          sorted_keys = sorted(translations.keys(), key=len, reverse=True)
+
+          for filepath in files:
               with open(filepath, "r", encoding="utf-8") as f:
                   content = f.read()
 
-              print(f"正在翻译: {filepath} ...")
-              try:
-                  response = client.chat.completions.create(
-                      model=model_name,
-                      messages=[
-                          {"role": "system", "content": prompt},
-                          {"role": "user", "content": content}
-                      ],
-                      temperature=0.1
-                  )
-                  translated = response.choices[0].message.content.strip()
-                  # 剥离可能附带的 markdown 代码块包裹
-                  translated = re.sub(r"^```[a-zA-Z]*\n", "", translated)
-                  translated = re.sub(r"\n```$", "", translated)
+              original = content
+              for en in sorted_keys:
+                  zh = translations[en]
+                  # 仅替换被单引号或双引号完整包裹的 UI 字符串，或者 Text('...') 内部文本，绝不破坏变量名
+                  content = re.sub(rf"'(?i:{re.escape(en)})'", f"'{zh}'", content)
+                  content = re.sub(rf'"(?i:{re.escape(en)})"', f'"{zh}"', content)
 
+              if content != original:
                   with open(filepath, "w", encoding="utf-8") as f:
-                      f.write(translated)
-                  print(f"✅ 完成翻译: {filepath}")
-              except Exception as e:
-                  print(f"❌ 翻译失败 {filepath}: {e}")
+                      f.write(content)
+                  print(f"✅ 已汉化文件: {filepath}")
           EOF
           python3 translate_settings.py
           rm -f translate_settings.py
